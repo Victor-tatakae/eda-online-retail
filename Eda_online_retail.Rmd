@@ -1,0 +1,182 @@
+---
+title: "Análise Exploratória de Vendas em E-commerce"
+author: "João Victor Souza Silva"
+date: "2026-01-12"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(ggplot2)
+library(scales)
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(ggplot2)
+library(scales)
+```
+
+## Contexto e Objetivo
+
+Esta análise foi conduzida a partir de um dataset de e-commerce com o objetivo inicial de explorar e compreender os dados após sua limpeza e preparação. A partir da análise exploratória, foi identificado um aumento expressivo da receita entre agosto e setembro de 2011, o que motivou uma investigação mais detalhada para compreender os fatores associados a esse crescimento.
+
+## Preparação do Ambiente
+
+```{r}
+
+online_retail <- readr::read_csv("online_retail.csv")
+```
+
+## Limpeza e Preparação dos Dados
+
+```{r}
+online_retail <- online_retail |>
+drop_na(CustomerID)
+
+online_retail_clean <- online_retail[
+!is.na(online_retail$CustomerID) &
+online_retail$UnitPrice > 0 &
+online_retail$Quantity > 0,
+]
+
+online_retail_clean$total_value <-
+online_retail_clean$UnitPrice * online_retail_clean$Quantity
+```
+
+## Analise Exploratória dos Dados (EDA)
+
+As variáveis de preço, quantidade e valor total apresentam distribuições assimétricas, características comuns em dados de vendas. Para melhor visualização, utilizou-se escala logarítmica.
+
+```{r}
+ggplot(online_retail_clean, aes(x = UnitPrice)) +
+ geom_density(color = "#2E8B57", linewidth = 1) +
+  scale_x_log10(
+    breaks = c(0.1, 0.5, 1, 2, 5, 10, 20, 50),
+    labels = scales::number
+  ) +
+  labs(
+    title = "Distribuição de preços (escala logarítmica)",
+    x = "UnitPrice (log)",
+    y = "Densidade"
+  ) +
+  theme_minimal()
+```
+
+## Análise Temporal da receita
+```{r revenue-plot, warning=FALSE}
+online_retail_clean$InvoiceDate <-
+ymd_hms(online_retail_clean$InvoiceDate)
+
+online_retail_clean <- online_retail_clean %>%
+mutate(
+year_month = floor_date(InvoiceDate, "month")
+)
+
+revenue_month <- online_retail_clean %>%
+group_by(year_month) %>%
+summarise(revenue = sum(total_value), .groups = "drop")
+```
+```{r}
+ggplot(revenue_month, aes(x = year_month, y = revenue)) +
+geom_line(linewidht = 0.5, color = "#90EE90") +
+geom_point(size = 1.4) +
+scale_x_date(date_labels = "%Y-%m", date_breaks = "1 month") +
+scale_y_continuous(labels = comma) +
+labs(
+title = "Evolução da Receita Mensal",
+subtitle = "Dezembro/2010 a Novembro/2011",
+x = "Mês",
+y = "Receita"
+) +
+theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+## Investigação do crescimento (Agosto -> Setembro)
+
+```{r}
+online_retail_clean <- online_retail_clean %>%
+  mutate(
+    year_month = as.Date(floor_date(InvoiceDate, "month"))
+  )
+
+retail_aug_sep <- online_retail_clean[
+online_retail_clean$year_month %in% as.Date(c("2011-08-01", "2011-09-01")),
+]
+
+product_month_revenue <- aggregate(
+total_value ~ year_month + StockCode + Description,
+data = retail_aug_sep,
+FUN = sum
+)
+
+aug_data <- product_month_revenue[
+product_month_revenue$year_month == as.Date("2011-08-01"),
+]
+
+sep_data <- product_month_revenue[
+product_month_revenue$year_month == as.Date("2011-09-01"),
+]
+
+product_compare <- merge(
+aug_data,
+sep_data,
+by = c("StockCode", "Description"),
+suffixes = c("_aug", "_sep"),
+all = TRUE
+)
+
+product_compare <- replace_na(
+product_compare,
+list(
+total_value_aug = 0,
+total_value_sep = 0
+)
+)
+
+product_compare$abs_change <-
+product_compare$total_value_sep - product_compare$total_value_aug
+```
+
+## Produtos que mais contribuíram para o crescimento
+
+```{r}
+product_compare_sorted <- product_compare[
+order(product_compare$abs_change, decreasing = TRUE),
+]
+
+product_growth <- product_compare_sorted[
+product_compare_sorted$abs_change > 0,
+]
+
+top10_products <- product_growth[1:10, ]
+
+ggplot(top10_products,
+aes(x = reorder(Description, abs_change),
+y = abs_change,
+fill = abs_change)) +
+geom_col() +
+coord_flip() +
+scale_fill_gradient(
+low = "#C7EDE6",
+high = "#006D5B"
+) +
+labs(
+title = "Top 10 produtos que mais contribuíram para o crescimento",
+subtitle = "Agosto → Setembro 2011",
+x = "Produto",
+y = "Aumento de receita",
+fill = "Impacto"
+) + theme_minimal()
+```
+
+# Conclusão
+
+A análise exploratória indicou que o crescimento da receita entre agosto e setembro de
+2011 não foi homogêneo, sendo impulsionado por um conjunto reduzido de produtos.
+Os itens identificados apresentam características consistentes com padrões sazonais,
+como produtos associados ao período natalino e ao clima mais frio, sugerindo o início
+antecipado da demanda sazonal no e-commerce analisado.
